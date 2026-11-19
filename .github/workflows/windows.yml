@@ -91,32 +91,35 @@ jobs:
           "$WINE" "$exe" --version
           "$WINE" "$exe" --help > /dev/null
 
+          # Actions runs this script with bash -e, so any command expected to fail
+          # has to be written as "cmd && rc=0 || rc=\$?" - a bare failing call would
+          # abort the whole step with no message at all.
           # --- parser: accepted -----------------------------------------------
-          "$WINE" "$exe" 0
-          "$WINE" "$exe" 3.75
-          "$WINE" "$exe" 007
-          "$WINE" "$exe" 1s
+          for good in 0 3.75 007 1s; do
+            "$WINE" "$exe" "$good" && rc=0 || rc=$?
+            [ $rc -eq 0 ] || { echo "::error::$good should exit 0, got $rc"; exit 1; }
+          done
 
           # --- parser: rejected with exit 1 -----------------------------------
           for bad in 10x 1w 10s5m 1e3 -5; do
-            "$WINE" "$exe" "$bad"; rc=$?
+            "$WINE" "$exe" "$bad" && rc=0 || rc=$?
             [ $rc -eq 1 ] || { echo "::error::$bad should exit 1, got $rc"; exit 1; }
           done
 
           # --- the 30-day ceiling, stated as an error rather than an overflow --
-          "$WINE" "$exe" 999999999999999999999999; rc=$?
+          "$WINE" "$exe" 999999999999999999999999 && rc=0 || rc=$?
           [ $rc -eq 1 ] || { echo "::error::overflow should exit 1, got $rc"; exit 1; }
 
           # --- --run propagates the child exit code ----------------------------
-          "$WINE" "$exe" 1s --run "cmd /c exit 5"; rc=$?
+          "$WINE" "$exe" 1s --run "cmd /c exit 5" && rc=0 || rc=$?
           [ $rc -eq 5 ] || { echo "::error::--run should propagate 5, got $rc"; exit 1; }
 
           # --- --install --dir creates the folder and leaves a working file ----
-          "$WINE" "$exe" --install --dir 'C:\ci-smoke'; rc=$?
+          "$WINE" "$exe" --install --dir 'C:\ci-smoke'&& rc=0 || rc=$?
           [ $rc -eq 0 ] || { echo "::error::--install --dir failed ($rc)"; exit 1; }
           installed="$WINEPREFIX/drive_c/ci-smoke/sleepv.exe"
           [ -f "$installed" ] || { echo "::error::installed file missing"; exit 1; }
-          "$WINE" "$installed" 0.5s
+          "$WINE" "$installed" 0.5s || { echo "::error::installed copy failed to run"; exit 1; }
           echo "installed copy verified: $(stat -c %s "$installed") bytes"
 
   release:
