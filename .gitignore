@@ -1,0 +1,10 @@
+# intermediates and stray artifacts - never committed
+*.o
+*.res
+win/build/
+*.exe
+
+# the two release binaries are committed on purpose, so win/dist is usable without
+# GitHub Releases as well (see "Where to get it" / «Где взять» in the READMEs)
+!win/dist/sleepv-x86.exe
+!win/dist/sleepv-x64.exe

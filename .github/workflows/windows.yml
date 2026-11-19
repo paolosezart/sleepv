@@ -1,0 +1,101 @@
+name: windows build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64 toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mingw-w64 binutils-mingw-w64
+
+      - name: Build x86 + x64 and run the Vista compatibility gate
+        working-directory: win
+        run: |
+          make all
+          make gate
+          ls -l dist/
+          for f in dist/sleepv-x86.exe dist/sleepv-x64.exe; do
+            echo "--- $f"
+            objdump -p "$f" | grep "DLL Name"
+            objdump -p "$f" | grep -E "MajorSubsystemVersion|MinorSubsystemVersion"
+          done
+
+      - name: Fail on forbidden imports (Vista has no api-ms-* / UCRT)
+        run: |
+          if objdump -p win/dist/sleepv-x86.exe | grep -qiE "api-ms-|ext-ms-|vcruntime|ucrt|msvcp|concrt"; then
+            echo "post-Vista import found in x86 build"; exit 1
+          fi
+          if objdump -p win/dist/sleepv-x64.exe | grep -qiE "api-ms-|ext-ms-|vcruntime|ucrt|msvcp|concrt"; then
+            echo "post-Vista import found in x64 build"; exit 1
+          fi
+
+      - name: Size budget
+        run: |
+          for f in win/dist/sleepv-x86.exe win/dist/sleepv-x64.exe; do
+            s=$(stat -c%s "$f"); echo "$f = $s bytes"
+            [ "$s" -lt 200000 ] || { echo "build grew past 200 KB"; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sleepv-windows
+          path: win/dist/sleepv-x*.exe
+          if-no-files-found: error
+
+  # Behavioural smoke test. Wine is not the real Windows console, so this job is
+  # allowed to be flaky; it exists to catch parser / exit-code regressions.
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Wine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends wine64
+      - name: Run the x64 build under Wine
+        env:
+          WINEDEBUG: "-all"
+          WINEDLLOVERRIDES: "mscoree=,mshtml="
+        run: |
+          mkdir -p "$HOME/wine-prefix"
+          export WINEPREFIX="$HOME/wine-prefix" WINEARCH=win64
+          wineboot -u || true
+          wine win/dist/sleepv-x64.exe --version
+          wine win/dist/sleepv-x64.exe --help >/dev/null
+          ! wine win/dist/sleepv-x64.exe 1m30s
+          ! wine win/dist/sleepv-x64.exe 5cat
+          wine win/dist/sleepv-x64.exe 1s
+          wine win/dist/sleepv-x64.exe 1s --run "exit 5"; [ $? -eq 5 ]
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sleepv-windows
+          path: bin
+      - name: Checksums and release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          (cd bin && sha256sum sleepv-x*.exe > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          gh release create "${GITHUB_REF_NAME}" bin/* --title "sleepv ${GITHUB_REF_NAME}" --notes "Native Windows builds: Vista SP2 and later, 32- and 64-bit, no runtime dependencies."
