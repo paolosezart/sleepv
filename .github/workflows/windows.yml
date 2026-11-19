@@ -99,8 +99,8 @@ jobs:
 
           # --- parser: rejected with exit 1 -----------------------------------
           for bad in 10x 1w 10s5m 1e3 -5; do
-            "$WINE" "$exe" "$bad" && { echo "::error::$bad should have been rejected"; exit 1; }
-            [ $? -eq 1 ] || true
+            "$WINE" "$exe" "$bad"; rc=$?
+            [ $rc -eq 1 ] || { echo "::error::$bad should exit 1, got $rc"; exit 1; }
           done
 
           # --- the 30-day ceiling, stated as an error rather than an overflow --
