@@ -148,13 +148,24 @@ it automatically.
 
 ── Getting it ───────────────────────────────────────────────────────────────
 
-1) Releases tab: sleepv-x86.exe, sleepv-x64.exe, SHA256SUMS.txt
-2) Portable: drop the exe next to your .bat files - no install required
-3) Build it yourself (cross-compile on Linux, or natively in MSYS2/MinGW):
+1) In the tree itself: win/dist/sleepv-x86.exe and win/dist/sleepv-x64.exe.
+   Both are committed on purpose, so the tool can be taken away by cloning the
+   repository, with no Releases tab and no toolchain involved.
+2) Releases tab: the same two executables plus SHA256SUMS.txt, built by GitHub
+   Actions when a v* tag is pushed; the hash values are also printed in the body
+   of the release.
+3) Portable: drop the exe next to your .bat files - no install required
+4) Build it yourself (cross-compile on Linux, or natively in MSYS2/MinGW):
 
        sudo apt-get install mingw-w64
        make -C win all
        make -C win gate        # Vista compatibility check on the imports
+
+   ABOUT THE HASHES. win/dist and the release assets come from the same Makefile
+   with the same flags, but from different binutils/gcc versions (a local build
+   versus the CI runner), so they may not be byte-identical: SHA256SUMS.txt
+   describes the release files. Behaviour is unaffected; if byte-for-byte proof
+   matters to you, build from source and compare against your own build.
 
 ── Same time syntax as on Linux ─────────────────────────────────────────────
 
@@ -344,9 +355,12 @@ downloaded file. The normal way round is portable use from your own folder, or
 
 .github/workflows/windows.yml builds both architectures, validates the import
 table (api-ms-*, ext-ms-*, UCRT, vcruntime, msvcp are forbidden), enforces a
-200 KB size budget, runs a behavioural smoke test under Wine (parser, exit
-codes, --run), uploads the artifacts and, on a v* tag, publishes a release with
-both executables and SHA256SUMS.txt.
+200 KB size budget, then runs a behavioural smoke test under Wine: the parser
+both accepting and rejecting with the right exit codes, the 30-day ceiling,
+--run propagating the child code, and --install --dir creating the folder and
+leaving a runnable sleepv.exe. It uploads the artifacts and, on a v* tag,
+publishes a release holding both executables, SHA256SUMS.txt and the same hashes
+in the release notes.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
