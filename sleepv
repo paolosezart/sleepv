@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+# sleepv — визуальная обёртка над GNU sleep с обратным отсчётом
+# Для Bash; работает в терминале и скрипте
+# Установка: sleepv --install
+
+SCRIPT_NAME="sleepv"
+INSTALL_PATH="/usr/sbin/${SCRIPT_NAME}"
+
+# ─────────────────────────────────────────────
+# Вспомогательные функции
+# ─────────────────────────────────────────────
+
+# Найти оригинальный sleep (не себя)
+find_real_sleep() {
+    local self_base
+    self_base="$(basename "$0")"
+
+    # Ищем первый sleep в PATH, пропуская нас самих
+    while IFS= read -r candidate; do
+        local cand_base
+        cand_base="$(basename "$candidate")"
+
+        # Пропускаем себя по имени
+        if [[ "$cand_base" == "$self_base" ]]; then
+            continue
+        fi
+
+        # Дополнительная проверка по realpath
+        if command -v realpath &>/dev/null; then
+            local rself rcand
+            rself="$(realpath "$0" 2>/dev/null)"
+            rcand="$(realpath "$candidate" 2>/dev/null)"
+            [[ "$rself" == "$rcand" ]] && continue
+        fi
+
+        echo "$candidate"
+        return 0
+    done < <(which -a sleep 2>/dev/null || type -a sleep 2>/dev/null | awk '{print $NF}')
+
+    # Запасные пути
+    for p in /usr/bin/sleep /bin/sleep; do
+        [[ -x "$p" ]] && echo "$p" && return 0
+    done
+
+    return 1
+}
+
+REAL_SLEEP="$(find_real_sleep)"
+
+# ─────────────────────────────────────────────
+# --install
+# ─────────────────────────────────────────────
+do_install() {
+    local src
+    src="$(realpath "$0" 2>/dev/null || readlink -f "$0" 2>/dev/null || echo "$0")"
+
+    echo "Установка ${SCRIPT_NAME} → ${INSTALL_PATH}"
+    echo "Источник: ${src}"
+
+    # Пробуем скопировать напрямую
+    _try_copy() {
+        cp -- "$src" "${INSTALL_PATH}" 2>/dev/null &&
+            chmod +x "${INSTALL_PATH}" 2>/dev/null
+    }
+
+    if [[ -w "$(dirname "${INSTALL_PATH}")" ]]; then
+        if _try_copy; then
+            echo "✓ Установлено без sudo: ${INSTALL_PATH}"
+            return 0
+        fi
+    fi
+
+    # Если нет прав, используем sudo
+    if command -v sudo &>/dev/null; then
+        echo "Требуются права root. Запрос sudo..."
+        if sudo cp -- "$src" "${INSTALL_PATH}" &&
+            sudo chmod +x "${INSTALL_PATH}"; then
+            echo "✓ Установлено с sudo: ${INSTALL_PATH}"
+            return 0
+        else
+            echo "✗ Не удалось скопировать в ${INSTALL_PATH}."
+            echo "  Попробуйте вручную:"
+            echo "    sudo cp \"$src\" ${INSTALL_PATH} && sudo chmod +x ${INSTALL_PATH}"
+            return 1
+        fi
+    else
+        echo "✗ Нет прав на запись в $(dirname "${INSTALL_PATH}") и sudo недоступен."
+        echo "  Выполните от root:"
+        echo "    cp \"$src\" ${INSTALL_PATH} && chmod +x ${INSTALL_PATH}"
+        return 1
+    fi
+}
+
+# ─────────────────────────────────────────────
+# --help
+# ─────────────────────────────────────────────
+do_help() {
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  sleepv — обёртка над sleep с визуальным обратным отсчётом  ║"
+    echo "║  Версия: 1.0                                                ║"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo
+    echo "Использование:"
+    echo "  sleepv NUMBER[SUFFIX]...   — пауза с визуальным отсчётом"
+    echo "  sleepv --install           — установить в ${INSTALL_PATH}"
+    echo "  sleepv --help              — показать эту справку"
+    echo " Пример вывода:"
+    echo " sleepv 10s && sudo whoami"
+    echo " ✓  Sleepv закончил! (было: 10s)"
+    echo " root"
+    echo
+    echo " sleepv 10s && sudo whoami && sleepv 14 && uptime"
+    echo "   ✓  Sleepv закончил! (было: 10s)"
+    echo " root"
+    echo "   ✓  Sleepv закончил! (было: 14)"
+    echo "  21:57:54 up  2:42,  5 users,  load average: 0,42, 0,33, 0,37"
+
+    echo
+    echo "Суффиксы: s (секунды), m (минуты), h (часы), d (дни)"
+    echo "Можно указать несколько значений: sleepv 1m 30s"
+    echo "Отмена: Ctrl+C"
+    echo
+    echo "──────────────────────────────────────────────────────────────"
+    echo "Оригинальная справка GNU sleep:"
+    echo "──────────────────────────────────────────────────────────────"
+
+    if [[ -n "$REAL_SLEEP" ]]; then
+        "$REAL_SLEEP" --help 2>&1 || true
+    else
+        echo "(оригинальный sleep не найден в системе)"
+    fi
+}
+
+# ─────────────────────────────────────────────
+# Парсинг аргументов → общее время в секундах
+# ─────────────────────────────────────────────
+parse_duration() {
+    local total=0
+    local valid=0
+
+    for arg in "$@"; do
+        # Допустимые форматы: 5, 5s, 5.5, 1m, 2h, 3d
+        if [[ "$arg" =~ ^([0-9]+(\.[0-9]*)?)([smhd]?)$ ]]; then
+            local num="${BASH_REMATCH[1]}"
+            local suffix="${BASH_REMATCH[3]}"
+            local secs
+
+            case "$suffix" in
+                ''|s)
+                    secs=$(echo "$num * 1" | bc 2>/dev/null || awk "BEGIN{print $num}")
+                    ;;
+                m)
+                    secs=$(echo "$num * 60" | bc 2>/dev/null || awk "BEGIN{print $num*60}")
+                    ;;
+                h)
+                    secs=$(echo "$num * 3600" | bc 2>/dev/null || awk "BEGIN{print $num*3600}")
+                    ;;
+                d)
+                    secs=$(echo "$num * 86400" | bc 2>/dev/null || awk "BEGIN{print $num*86400}")
+                    ;;
+            esac
+
+            total=$(echo "$total + $secs" | bc 2>/dev/null || awk "BEGIN{print $total + $secs}")
+            valid=1
+        else
+            echo "sleepv: неверный аргумент: '$arg'" >&2
+            echo "Используйте: sleepv --help" >&2
+            return 1
+        fi
+    done
+
+    if [[ "$valid" -eq 0 ]]; then
+        return 1
+    fi
+
+    # Возвращаем целые секунды, округляя вниз
+    printf '%d\n' "${total%.*}" 2>/dev/null ||
+        echo "${total}" | awk '{printf "%d\n", $1}'
+}
+
+# ─────────────────────────────────────────────
+# Форматирование времени HH:MM:SS
+# ─────────────────────────────────────────────
+format_time() {
+    local s="$1"
+    local h=$(( s / 3600 ))
+    local m=$(( (s % 3600) / 60 ))
+    local sec=$(( s % 60 ))
+
+    printf "%02d:%02d:%02d" "$h" "$m" "$sec"
+}
+
+# ─────────────────────────────────────────────
+# Прогресс-бар
+# ─────────────────────────────────────────────
+progress_bar() {
+    local current="$1"
+    local total="$2"
+    local width=30
+    local filled=0
+
+    if (( total > 0 )); then
+        filled=$(( (total - current) * width / total ))
+    fi
+
+    local empty=$(( width - filled ))
+    local bar=""
+    local i
+
+    for (( i=0; i<filled; i++ )); do
+        bar+="█"
+    done
+    for (( i=0; i<empty; i++ )); do
+        bar+="░"
+    done
+
+    echo "$bar"
+}
+
+# ─────────────────────────────────────────────
+# Проверка: терминал или pipe/скрипт
+# ─────────────────────────────────────────────
+is_tty() {
+    [[ -t 2 ]]
+}
+
+# ─────────────────────────────────────────────
+# Визуальный обратный отсчёт
+# ─────────────────────────────────────────────
+do_countdown() {
+    local total_secs="$1"
+    local label="$2"
+
+    if ! is_tty; then
+        # Без терминала просто ждём указанное время
+        if [[ -n "$REAL_SLEEP" ]]; then
+            exec "$REAL_SLEEP" "${@:3}"
+        else
+            sleep "$total_secs"
+        fi
+        return
+    fi
+
+    # Скрываем курсор, если терминал это поддерживает
+    tput civis 2>/dev/null || true
+
+    # Обработчик Ctrl+C и SIGTERM:
+    # останавливает также фоновый настоящий sleep из main()
+    trap '
+        if [[ -n "${SLEEP_PID:-}" ]]; then
+            kill "$SLEEP_PID" 2>/dev/null || true
+            wait "$SLEEP_PID" 2>/dev/null || true
+        fi
+        tput cnorm 2>/dev/null || true
+        printf "\n" >&2
+        echo "sleepv: прервано пользователем." >&2
+        exit 130
+    ' INT TERM
+
+    local elapsed=0
+    local remaining="$total_secs"
+
+    while (( remaining >= 0 )); do
+        local bar
+        bar="$(progress_bar "$elapsed" "$total_secs")"
+
+        local time_str
+        time_str="$(format_time "$remaining")"
+
+        local pct=0
+        if (( total_secs > 0 )); then
+            pct=$(( elapsed * 100 / total_secs ))
+        fi
+
+        printf "\r\033[K  ⏱  %s  [%s]  %3d%%  (%s)" \
+            "$time_str" "$bar" "$pct" "$label" >&2
+
+        (( remaining == 0 )) && break
+
+        sleep 1
+        (( elapsed++ ))
+        (( remaining-- ))
+    done
+
+    printf "\r\033[K  ✓  Sleepv закончил! (было: %s)\n" "$label" >&2
+
+    # Восстанавливаем курсор и удаляем обработчик сигналов
+    tput cnorm 2>/dev/null || true
+    trap - INT TERM
+}
+
+# ─────────────────────────────────────────────
+# MAIN
+# ─────────────────────────────────────────────
+main() {
+    if [[ $# -eq 0 ]]; then
+        do_help
+        exit 0
+    fi
+
+    case "$1" in
+        --help|-h)
+            do_help
+            exit 0
+            ;;
+        --version)
+            echo "sleepv 1.0 — обёртка над sleep с визуальным отсчётом"
+            if [[ -n "$REAL_SLEEP" ]]; then
+                echo
+                "$REAL_SLEEP" --version 2>&1 || true
+            fi
+            exit 0
+            ;;
+        --install)
+            do_install
+            exit $?
+            ;;
+    esac
+
+    local total_secs
+    if ! total_secs="$(parse_duration "$@")"; then
+        exit 1
+    fi
+
+    if (( total_secs < 0 )); then
+        echo "sleepv: время не может быть отрицательным." >&2
+        exit 1
+    fi
+
+    local label="$*"
+
+    if [[ -n "$REAL_SLEEP" && "$total_secs" -gt 0 ]]; then
+        # Запускаем настоящий sleep в фоне, чтобы выдержать точное время
+        "$REAL_SLEEP" "$@" &
+        SLEEP_PID=$!
+
+        # Сохраняем обработчик на случай сигнала до начала countdown
+        trap '
+            kill "$SLEEP_PID" 2>/dev/null || true
+            wait "$SLEEP_PID" 2>/dev/null || true
+            tput cnorm 2>/dev/null || true
+            printf "\n" >&2
+            echo "sleepv: прервано пользователем." >&2
+            exit 130
+        ' INT TERM
+
+        do_countdown "$total_secs" "$label" "$@"
+
+        wait "$SLEEP_PID" 2>/dev/null
+        trap - INT TERM
+    else
+        do_countdown "$total_secs" "$label" "$@"
+    fi
+}
+
+main "$@"
