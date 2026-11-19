@@ -113,7 +113,7 @@ jobs:
           "$WINE" "$exe" --version || { echo "::error::--version failed"; exit 1; }
           "$WINE" "$exe" --help > /dev/null || { echo "::error::--help failed"; exit 1; }
 
-          check 0  "accepted forms summed"      007 3.75 0.5s
+          check 0  "accepted forms summed"      0 0.25 0.5s 001
           check 1  "junk suffix 10x"            10x
           check 1  "attached units 10s5m"       10s5m
           check 1  "negative -5"                -5
