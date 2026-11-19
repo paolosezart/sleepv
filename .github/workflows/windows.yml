@@ -186,6 +186,12 @@ jobs:
           else
             flag=""
           fi
-          gh release create "$GITHUB_REF_NAME" bin/* --title "sleepv $GITHUB_REF_NAME" $flag --notes-file notes.md
-          echo "published $(gh release view "$GITHUB_REF_NAME" --json tagName,assets -q '.tagName + " " + (.assets | length | tostring) + " assets"')"
+          # This job has no checkout step on purpose, so gh has to be told which
+          # repository it is publishing to: without --repo it looks for a .git
+          # directory and dies with "failed to run git: not a git repository".
+          gh release create "$GITHUB_REF_NAME" bin/* --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "sleepv $GITHUB_REF_NAME" $flag --notes-file notes.md
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,assets -q '.tagName + ": " + (.assets | map(.name) | join(", "))' \
+            | sed "s/^/published  /"
 
