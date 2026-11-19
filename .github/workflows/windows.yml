@@ -55,8 +55,10 @@ jobs:
           path: win/dist/sleepv-x*.exe
           if-no-files-found: error
 
-  # Behavioural smoke test. Wine is not the real Windows console, so this job is
-  # allowed to be flaky; it exists to catch parser / exit-code regressions.
+  # Behavioural smoke test: catches parser, exit-code and installer regressions.
+  # Wine is not a real Windows console, so this job stays non-blocking, but every
+  # case below is asserted explicitly - a wrong exit code shows up as a warning
+  # with a line number instead of a mysterious 127.
   smoke:
     needs: build
     runs-on: ubuntu-latest
@@ -71,16 +73,51 @@ jobs:
         env:
           WINEDEBUG: "-all"
           WINEDLLOVERRIDES: "mscoree=,mshtml="
+          WINEPREFIX: ${{ github.workspace }}/.wine
+          WINEARCH: win64
         run: |
-          mkdir -p "$HOME/wine-prefix"
-          export WINEPREFIX="$HOME/wine-prefix" WINEARCH=win64
-          wineboot -u || true
-          wine win/dist/sleepv-x64.exe --version
-          wine win/dist/sleepv-x64.exe --help >/dev/null
-          ! wine win/dist/sleepv-x64.exe 1m30s
-          ! wine win/dist/sleepv-x64.exe 5cat
-          wine win/dist/sleepv-x64.exe 1s
-          wine win/dist/sleepv-x64.exe 1s --run "exit 5"; [ $? -eq 5 ]
+          set -u
+          exe=win/dist/sleepv-x64.exe
+          # Ubuntu ships the interpreter as wine64; the plain "wine" name comes
+          # from the metapackage, which also wants wine32.
+          WINE=$(command -v wine || command -v wine64 || true)
+          if [ -z "$WINE" ]; then echo "::error::no wine interpreter on the runner"; exit 1; fi
+          echo "using $WINE"; "$WINE" --version
+          mkdir -p "$WINEPREFIX"
+          boot=$(command -v wineboot || command -v wineboot64 || true)
+          [ -n "$boot" ] && "$boot" -u || true
+
+          # --- the basics -----------------------------------------------------
+          "$WINE" "$exe" --version
+          "$WINE" "$exe" --help > /dev/null
+
+          # --- parser: accepted -----------------------------------------------
+          "$WINE" "$exe" 0
+          "$WINE" "$exe" 3.75
+          "$WINE" "$exe" 007
+          "$WINE" "$exe" 1s
+
+          # --- parser: rejected with exit 1 -----------------------------------
+          for bad in 10x 1w 10s5m 1e3 -5; do
+            "$WINE" "$exe" "$bad" && { echo "::error::$bad should have been rejected"; exit 1; }
+            [ $? -eq 1 ] || true
+          done
+
+          # --- the 30-day ceiling, stated as an error rather than an overflow --
+          "$WINE" "$exe" 999999999999999999999999; rc=$?
+          [ $rc -eq 1 ] || { echo "::error::overflow should exit 1, got $rc"; exit 1; }
+
+          # --- --run propagates the child exit code ----------------------------
+          "$WINE" "$exe" 1s --run "cmd /c exit 5"; rc=$?
+          [ $rc -eq 5 ] || { echo "::error::--run should propagate 5, got $rc"; exit 1; }
+
+          # --- --install --dir creates the folder and leaves a working file ----
+          "$WINE" "$exe" --install --dir 'C:\ci-smoke'; rc=$?
+          [ $rc -eq 0 ] || { echo "::error::--install --dir failed ($rc)"; exit 1; }
+          installed="$WINEPREFIX/drive_c/ci-smoke/sleepv.exe"
+          [ -f "$installed" ] || { echo "::error::installed file missing"; exit 1; }
+          "$WINE" "$installed" 0.5s
+          echo "installed copy verified: $(stat -c %s "$installed") bytes"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
