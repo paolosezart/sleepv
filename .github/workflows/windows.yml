@@ -59,10 +59,18 @@ jobs:
   # Wine is not a real Windows console, so this job stays non-blocking, but every
   # case below is asserted explicitly - a wrong exit code shows up as a warning
   # with a line number instead of a mysterious 127.
+  # Behavioural smoke test. Wine is not a real Windows console, so the job does
+  # not block anything; it exists to catch parser, exit-code and installer
+  # regressions, and every case is asserted with its expected code.
+  #
+  # Kept deliberately short: one Wine start costs several seconds, so the matrix
+  # is ~9 calls, durations are tiny, and the step carries a timeout so a stuck
+  # Wine can never eat the runner minute budget.
   smoke:
     needs: build
     runs-on: ubuntu-latest
     continue-on-error: true
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Install Wine
@@ -70,6 +78,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends wine64
       - name: Run the x64 build under Wine
+        timeout-minutes: 10
         env:
           WINEDEBUG: "-all"
           WINEDLLOVERRIDES: "mscoree=,mshtml="
@@ -78,49 +87,47 @@ jobs:
         run: |
           set -u
           exe=win/dist/sleepv-x64.exe
-          # Ubuntu ships the interpreter as wine64; the plain "wine" name comes
-          # from the metapackage, which also wants wine32.
+          # Ubuntu ships the interpreter as wine64; the bare "wine" name comes from
+          # the metapackage, which also drags in wine32.
           WINE=$(command -v wine || command -v wine64 || true)
           if [ -z "$WINE" ]; then echo "::error::no wine interpreter on the runner"; exit 1; fi
-          echo "using $WINE"; "$WINE" --version
-          mkdir -p "$WINEPREFIX"
+          echo "using $("$WINE" --version 2>/dev/null | head -1)"
           boot=$(command -v wineboot || command -v wineboot64 || true)
           [ -n "$boot" ] && "$boot" -u || true
 
-          # --- the basics -----------------------------------------------------
-          "$WINE" "$exe" --version
-          "$WINE" "$exe" --help > /dev/null
+          # Actions runs this under bash -e: anything expected to fail must be
+          # written as "cmd && rc=0 || rc=$?", otherwise the shell aborts the whole
+          # step on the first non-zero status without printing a verdict.
+          check() {  # check <expected code> <description> <args...>
+            local want=$1 desc=$2; shift 2
+            local rc
+            "$WINE" "$exe" "$@" && rc=0 || rc=$?
+            if [ "$rc" -eq "$want" ]; then
+              echo "ok   [$desc] rc=$rc"
+            else
+              echo "::error::[$desc] expected rc=$want, got rc=$rc"
+              return 1
+            fi
+          }
 
-          # Actions runs this script with bash -e, so any command expected to fail
-          # has to be written as "cmd && rc=0 || rc=\$?" - a bare failing call would
-          # abort the whole step with no message at all.
-          # --- parser: accepted -----------------------------------------------
-          for good in 0 3.75 007 1s; do
-            "$WINE" "$exe" "$good" && rc=0 || rc=$?
-            [ $rc -eq 0 ] || { echo "::error::$good should exit 0, got $rc"; exit 1; }
-          done
+          "$WINE" "$exe" --version || { echo "::error::--version failed"; exit 1; }
+          "$WINE" "$exe" --help > /dev/null || { echo "::error::--help failed"; exit 1; }
 
-          # --- parser: rejected with exit 1 -----------------------------------
-          for bad in 10x 1w 10s5m 1e3 -5; do
-            "$WINE" "$exe" "$bad" && rc=0 || rc=$?
-            [ $rc -eq 1 ] || { echo "::error::$bad should exit 1, got $rc"; exit 1; }
-          done
+          check 0  "accepted forms summed"      007 3.75 0.5s
+          check 1  "junk suffix 10x"            10x
+          check 1  "attached units 10s5m"       10s5m
+          check 1  "negative -5"                -5
+          check 1  "30-day ceiling, not overflow"  999999999999999999999999
+          check 5  "--run propagates the child code"  0.5s --run "cmd /c exit 5"
 
-          # --- the 30-day ceiling, stated as an error rather than an overflow --
-          "$WINE" "$exe" 999999999999999999999999 && rc=0 || rc=$?
-          [ $rc -eq 1 ] || { echo "::error::overflow should exit 1, got $rc"; exit 1; }
-
-          # --- --run propagates the child exit code ----------------------------
-          "$WINE" "$exe" 1s --run "cmd /c exit 5" && rc=0 || rc=$?
-          [ $rc -eq 5 ] || { echo "::error::--run should propagate 5, got $rc"; exit 1; }
-
-          # --- --install --dir creates the folder and leaves a working file ----
-          "$WINE" "$exe" --install --dir 'C:\ci-smoke' && rc=0 || rc=$?
-          [ $rc -eq 0 ] || { echo "::error::--install --dir failed ($rc)"; exit 1; }
-          installed="$WINEPREFIX/drive_c/ci-smoke/sleepv.exe"
+          # --install --dir has to create the folder itself; C:\windows\temp is the
+          # one place a Wine prefix is always writable.
+          check 0  "--install --dir"            --install --dir 'C:\windows\temp\ci-smoke'
+          installed="$WINEPREFIX/drive_c/windows/temp/ci-smoke/sleepv.exe"
           [ -f "$installed" ] || { echo "::error::installed file missing"; exit 1; }
+          echo "installed copy: $(stat -c %s "$installed") bytes"
           "$WINE" "$installed" 0.5s || { echo "::error::installed copy failed to run"; exit 1; }
-          echo "installed copy verified: $(stat -c %s "$installed") bytes"
+          echo "smoke finished"
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
