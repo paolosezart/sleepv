@@ -150,7 +150,9 @@ it automatically.
 
 1) In the tree itself: win/dist/sleepv-x86.exe and win/dist/sleepv-x64.exe.
    Both are committed on purpose, so the tool can be taken away by cloning the
-   repository, with no Releases tab and no toolchain involved.
+   repository, with no Releases tab and no toolchain involved. They are the
+   CI-built files, byte-identical with the v1.1.0 release assets, so the hashes
+   in SHA256SUMS.txt apply to them as well.
 2) Releases tab: the same two executables plus SHA256SUMS.txt, built by GitHub
    Actions when a v* tag is pushed; the hash values are also printed in the body
    of the release.
@@ -161,11 +163,15 @@ it automatically.
        make -C win all
        make -C win gate        # Vista compatibility check on the imports
 
-   ABOUT THE HASHES. win/dist and the release assets come from the same Makefile
-   with the same flags, but from different binutils/gcc versions (a local build
-   versus the CI runner), so they may not be byte-identical: SHA256SUMS.txt
-   describes the release files. Behaviour is unaffected; if byte-for-byte proof
-   matters to you, build from source and compare against your own build.
+   ABOUT THE HASHES. win/dist holds the GitHub Actions build, so its SHA-256
+   values match the release and can be checked directly:
+
+       sha256sum win/dist/sleepv-x64.exe                   # Linux / MSYS2
+       certutil -hashfile win\dist\sleepv-x64.exe SHA256   # Windows
+
+   A build made on your own machine (different binutils/gcc versions) behaves
+   identically but may differ byte for byte, and that is fine: compare a release
+   against a release, and your own build against your own build.
 
 ── Same time syntax as on Linux ─────────────────────────────────────────────
 
