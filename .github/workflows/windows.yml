@@ -112,13 +112,33 @@ jobs:
 
           "$WINE" "$exe" --version || { echo "::error::--version failed"; exit 1; }
           "$WINE" "$exe" --help > /dev/null || { echo "::error::--help failed"; exit 1; }
+          timeout 15s "$WINE" "$exe" 0 --msg 765 --run "cmd /c exit 5" && rc=0 || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "ok   [--msg text is not treated as a duration] rc=$rc"
+          else
+            echo "::error::[--msg text is not treated as a duration] expected rc=0, got rc=$rc"
+            exit 1
+          fi
 
           check 0  "accepted forms summed"      0 0.25 0.5s 001
           check 1  "junk suffix 10x"            10x
           check 1  "attached units 10s5m"       10s5m
           check 1  "negative -5"                -5
           check 1  "30-day ceiling, not overflow"  999999999999999999999999
-          check 5  "--run propagates the child code"  0.5s --run "cmd /c exit 5"
+          check 0  "--run is asynchronous by default"  0 --run "cmd /c exit 5"
+          check 5  "-a waits and propagates child code"  0 -a --run "cmd /c exit 5"
+
+          sequence_file='C:\windows\temp\sleepv-sequence.txt'
+          rm -f "$WINEPREFIX/drive_c/windows/temp/sleepv-sequence.txt"
+          check 0  "--after serializes repeated --run"  0 --run "echo first > $sequence_file" --after --run "echo second >> $sequence_file"
+          sequence=$(tr -d '\r' < "$WINEPREFIX/drive_c/windows/temp/sleepv-sequence.txt")
+          [ "$sequence" = $'first\nsecond' ] || { echo "::error::--after did not preserve command order"; exit 1; }
+
+          check 0  "--run honors --workdir"  0 -a --workdir 'C:\windows\temp' --run 'echo %CD% > C:\windows\temp\sleepv-cwd.txt' --run 'echo inherited >> C:\windows\temp\sleepv-cwd.txt'
+          grep -Fqi 'C:\windows\temp' "$WINEPREFIX/drive_c/windows/temp/sleepv-cwd.txt" \
+            || { echo "::error::--run did not start in --workdir"; exit 1; }
+          grep -Fqi 'inherited' "$WINEPREFIX/drive_c/windows/temp/sleepv-cwd.txt" \
+            || { echo "::error::repeated --run did not inherit --workdir"; exit 1; }
 
           # --install --dir has to create the folder itself; C:\windows\temp is the
           # one place a Wine prefix is always writable.
@@ -194,4 +214,3 @@ jobs:
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             --json tagName,assets -q '.tagName + ": " + (.assets | map(.name) | join(", "))' \
             | sed "s/^/published  /"
-

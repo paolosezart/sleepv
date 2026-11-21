@@ -212,18 +212,45 @@ C:\Windows\System32. Details that matter:
 
     --install [--dir PATH]   copy itself into the system directory (UAC)
     --uninstall              remove the installed copies
-    --run "COMMAND"          run a command after the pause, return its exit code
+    --run "COMMAND"          queue a command after the pause; repeatable
+    -a, --after              wait for --run commands (applies to previous and later commands)
+    -w, --workdir PATH       working directory for following --run commands; inherited
+    -w, --workdir PATH       working directory for the --run command
     --beep                   beep when the pause ends
-    --msg                    message box when the pause ends
+    --msg [TEXT]             message box when the pause ends; default text if omitted
     --ascii                  bar drawn with # and - (default on Vista/2008)
     --unicode                bar drawn with block glyphs (default on Win7+)
     --strict-cancel          exit 130 on Ctrl+C (stops the && chain)
     -q, --quiet              no output at all
     --help, --version        help / version and build parameters
 
-    sleepv 30s --run "ipconfig /all"
+    sleepv 14s --msg Complete --run quser
+    sleepv 14s -a --msg Complete --run quser --after --run ver --run "echo done"
+    sleepv 5s -w "C:\Projects\demo" --run "dir && echo done"
     sleepv 5m --beep --msg
+    sleepv 30s --msg "765"    # show "765" after 30 seconds
     for /L %%i in (1,1,5) do ( echo try %%i & sleepv 10s )
+
+When custom text is supplied, put all duration arguments before `--msg`; its
+next argument is interpreted as the message text.
+`-w` / `--workdir` sets the initial working directory for `--run` and requires
+`--run`; quote paths containing spaces.
+
+By default, `--run` launches commands asynchronously and sleepv exits after
+starting the queue; it cannot report the exit code of a process still running.
+`-a` / `--after` enables waiting: it applies to the previous `--run` command, if
+any, and all following commands. This makes that part of the queue sequential,
+and sleepv returns the exit code of the last waited command. The `--msg` dialog
+appears before queued commands; the queue starts after the dialog is dismissed.
+
+`-w` / `--workdir` sets the starting directory for the next `--run` and is
+inherited by later commands until another path is specified. It requires at least
+one `--run` command.
+
+`--run` is executed through `cmd.exe`, so standard CMD operators `&&`, `&`, `|`,
+and `||` keep their normal behavior inside the quoted command. `--workdir` applies
+to the whole command string for that `--run`; a `cd` within it can change the
+directory for later parts of the same chain.
 
 ── Behaviour in .bat / cmd / PowerShell ─────────────────────────────────────
 

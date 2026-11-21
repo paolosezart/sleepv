@@ -27,14 +27,25 @@
 #define EXIT_CANCEL_STRICT 130
 
 typedef struct {
+    const WCHAR *command;
+    const WCHAR *workdir;
+    int          wait_after;
+} run_item_t;
+
+typedef struct {
     double       total;                  /* seconds to wait */
     WCHAR        label[200];             /* original argument text, for the tail message */
+    WCHAR        msg_text[200];          /* optional text for the completion message box */
     int          quiet;                  /* -q / --quiet */
     int          blocks;                 /* 1 = draw bar with U+2588/U+2591, 0 = ASCII */
     int          beep;
     int          msgbox;
     int          strict_cancel;          /* 1 => exit 130 after Ctrl+C, 0 => exit 0 */
-    const WCHAR *run;                    /* command line to launch when the pause ends */
+    run_item_t  *runs;                   /* commands to launch when the pause ends */
+    int          run_count;
+    int          run_capacity;
+    int          after_mode;             /* sticky --after mode for --run commands */
+    const WCHAR *workdir;                /* inherited initial working directory */
     int          elevated_hint;          /* internal: already running elevated */
     int          want_install;
     int          want_uninstall;
@@ -217,11 +228,38 @@ static int parse_args(int argc, WCHAR **argv, opts_t *o, WCHAR **install_dir)
             else if (!lstrcmpiW(a, L"--ascii"))        o->blocks = 0;
             else if (!lstrcmpiW(a, L"--unicode"))      o->blocks = 1;
             else if (!lstrcmpiW(a, L"--beep"))         o->beep = 1;
-            else if (!lstrcmpiW(a, L"--msg"))          o->msgbox = 1;
+            else if (!lstrcmpiW(a, L"--msg")) {
+                o->msgbox = 1;
+                /* An optional following token is the popup text. Put any
+                 * duration arguments before --msg when supplying custom text. */
+                if (i + 1 < argc && argv[i + 1][0] != L'-') {
+                    wcsncpy(o->msg_text, argv[++i],
+                            sizeof(o->msg_text) / sizeof(o->msg_text[0]) - 1);
+                    o->msg_text[sizeof(o->msg_text) / sizeof(o->msg_text[0]) - 1] = L'\0';
+                }
+            }
             else if (!lstrcmpiW(a, L"--strict-cancel")) o->strict_cancel = 1;
-            else if ((!lstrcmpiW(a, L"--run") || !lstrcmpiW(a, L"--dir")) && i + 1 < argc) {
-                if (a[2] == L'r' || a[2] == L'R') { if (!o->run) o->run = argv[++i]; else ++i; }
-                else                              { if (!*install_dir) *install_dir = argv[++i]; else ++i; }
+            else if (!lstrcmpiW(a, L"-a") || !lstrcmpiW(a, L"--after")) {
+                o->after_mode = 1;
+                /* Also make the immediately preceding command synchronous. */
+                if (o->run_count > 0)
+                    o->runs[o->run_count - 1].wait_after = 1;
+            }
+            else if ((!lstrcmpiW(a, L"-w") || !lstrcmpiW(a, L"--workdir")) && i + 1 < argc) {
+                o->workdir = argv[++i];
+            }
+            else if (!lstrcmpiW(a, L"--run") && i + 1 < argc) {
+                if (o->run_count >= o->run_capacity) {
+                    fputs("sleepv: too many --run commands.\n", stderr);
+                    return -1;
+                }
+                o->runs[o->run_count].command = argv[++i];
+                o->runs[o->run_count].workdir = o->workdir;
+                o->runs[o->run_count].wait_after = o->after_mode;
+                o->run_count++;
+            }
+            else if (!lstrcmpiW(a, L"--dir") && i + 1 < argc) {
+                if (!*install_dir) *install_dir = argv[++i]; else ++i;
             }
             else {
                 fprintf(stderr, SLEEPV_NAME ": unknown or incomplete option '%ls'.\n", a);
@@ -280,13 +318,17 @@ static void usage(void)
       "  --ascii              draw the bar with '#' and '-' (auto-default on Vista/2008)\n"
       "  --unicode            draw the bar with block glyphs\n"
       "  --beep               beep when the pause ends\n"
-      "  --msg                pop a message box when the pause ends\n"
-      "  --run \"COMMAND\"      run COMMAND after the pause, return its exit code\n"
+      "  --msg [TEXT]         pop a message box when the pause ends\n"
+      "  --run \"COMMAND\"      queue COMMAND after the pause; repeatable\n"
+      "  -a, --after          wait for --run commands; applies to previous and later ones\n"
+      "  -w, --workdir PATH   set working directory for following --run commands\n"
       "  --strict-cancel      exit with code 130 on Ctrl+C (stops '&&' chains)\n"
       "\n"
       "Examples:\n"
       "  sleepv 5m && calc\n"
       "  sleepv 30s --run \"ipconfig /all\"\n"
+      "  sleepv 14s -a --msg Complete --run quser --run ver --run \"echo done\"\n"
+      "  sleepv 5s --workdir \"C:\\Projects\\demo\" --run \"dir && echo done\"\n"
       "  for /L %%i in (1,1,5) do ( echo try %%i & sleepv 10s )\n"
       "\n"
       "Ctrl+C cancels the countdown and the following commands in a batch file\n"
@@ -420,7 +462,7 @@ static void sleep_ms(DWORD ms)
     }
 }
 
-static int run_command(const WCHAR *cmdline)
+static int run_command(const WCHAR *cmdline, const WCHAR *workdir, int wait_after)
 {
     WCHAR  full[1024];
     STARTUPINFOW si;
@@ -434,11 +476,17 @@ static int run_command(const WCHAR *cmdline)
     si.cb = sizeof si;
     ZeroMemory(&pi, sizeof pi);
 
-    if (!CreateProcessW(NULL, full, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+    if (!CreateProcessW(NULL, full, NULL, NULL, TRUE, 0, NULL, workdir, &si, &pi)) {
         fprintf(stderr, SLEEPV_NAME ": cannot start command (Win32 error %lu).\n",
                 (unsigned long)GetLastError());
         return 1;
     }
+    if (!wait_after) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return 0;
+    }
+
     g_child = pi.hProcess;
     while (WaitForSingleObject(pi.hProcess, 100) == WAIT_TIMEOUT) {
         if (InterlockedCompareExchange(&g_cancel, 0, 0)) {
@@ -452,6 +500,19 @@ static int run_command(const WCHAR *cmdline)
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return (int)code;
+}
+
+static int run_commands(const opts_t *o)
+{
+    int i, rc = 0;
+
+    for (i = 0; i < o->run_count; i++) {
+        if (InterlockedCompareExchange(&g_cancel, 0, 0))
+            break;
+        rc = run_command(o->runs[i].command, o->runs[i].workdir,
+                         o->runs[i].wait_after);
+    }
+    return rc;
 }
 
 static void announce(const opts_t *o, int cancelled)
@@ -482,9 +543,10 @@ static int countdown(const opts_t *o)
 
     if (!o->quiet) {
         if (GetConsoleCursorInfo(g_con_out, &g_saved_cci)) {
+            CONSOLE_CURSOR_INFO hidden_cci = g_saved_cci;
             g_cci_saved = 1;
-            g_saved_cci.bVisible = FALSE;
-            SetConsoleCursorInfo(g_con_out, &g_saved_cci);
+            hidden_cci.bVisible = FALSE;
+            SetConsoleCursorInfo(g_con_out, &hidden_cci);
         }
         fflush(stderr);
     }
@@ -863,6 +925,12 @@ int wmain(int argc, WCHAR **argv)
     HANDLE  tok = NULL;
 
     ZeroMemory(&o, sizeof o);
+    o.runs = (run_item_t *)calloc(argc > 0 ? (size_t)argc : 1, sizeof(*o.runs));
+    if (o.runs == NULL) {
+        fputs("sleepv: out of memory.\n", stderr);
+        return 1;
+    }
+    o.run_capacity = argc;
     {
         int maj, min;
         os_version(&maj, &min);
@@ -870,8 +938,10 @@ int wmain(int argc, WCHAR **argv)
     }
 
     pr = parse_args(argc, argv, &o, &install_dir);
-    if (pr < 0)
+    if (pr < 0) {
+        free(o.runs);
         return 1;
+    }
 
     if (o.want_install || o.want_uninstall) {
         TOKEN_ELEVATION elev;
@@ -892,21 +962,33 @@ int wmain(int argc, WCHAR **argv)
                 if (n > 0 && n < 500) args[n] = L'\0';
                 fputs("sleepv: administrator rights are required for the system directory.\n", stderr);
                 fputs("sleepv: approving the UAC prompt ...\n", stderr);
-                return relaunch_elevated(args);
+                rc = relaunch_elevated(args);
+                free(o.runs);
+                return rc;
             }
         }
-        return o.want_uninstall ? do_uninstall() : do_install(install_dir);
+        rc = o.want_uninstall ? do_uninstall() : do_install(install_dir);
+        free(o.runs);
+        return rc;
+    }
+
+    if (o.workdir && o.run_count == 0) {
+        fputs("sleepv: --workdir requires --run.\n", stderr);
+        free(o.runs);
+        return 1;
     }
 
     if (pr == 0) {                     /* nothing but flags: show help, like the original */
         usage();
+        free(o.runs);
         return 0;
     }
 
     if (o.total <= 0.0) {
-        rc = o.run ? run_command(o.run) : 0;
+        rc = run_commands(&o);
         if (!o.quiet && rc)
-            fprintf(stderr, SLEEPV_NAME ": command exited with code %d.\n", rc);
+            fprintf(stderr, SLEEPV_NAME ": command sequence exited with code %d.\n", rc);
+        free(o.runs);
         return rc;
     }
 
@@ -924,9 +1006,16 @@ int wmain(int argc, WCHAR **argv)
         }
         if (InterlockedCompareExchange(&g_cancel, 0, 0)) {
             fprintf(stderr, SLEEPV_NAME ": countdown cancelled.\n");
-            return o.strict_cancel ? EXIT_CANCEL_STRICT : 0;
+            rc = o.strict_cancel ? EXIT_CANCEL_STRICT : 0;
+            free(o.runs);
+            return rc;
         }
-        return o.run ? run_command(o.run) : 0;
+        if (o.msgbox)
+            MessageBoxW(NULL, o.msg_text[0] ? o.msg_text : L"sleepv: countdown finished.",
+                        L"sleepv", MB_OK | MB_ICONINFORMATION);
+        rc = run_commands(&o);
+        free(o.runs);
+        return rc;
     }
 
     g_con_out = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -938,16 +1027,19 @@ int wmain(int argc, WCHAR **argv)
     restore_console();
 
     if (InterlockedCompareExchange(&g_cancel, 0, 0)) {
-        if (o.run)
+        if (o.run_count > 0)
             fprintf(stderr, SLEEPV_NAME ": cancelled, the --run command was not started.\n");
+        free(o.runs);
         return rc;
     }
     if (o.msgbox)
-        MessageBoxW(NULL, L"sleepv: countdown finished.", L"sleepv", MB_OK | MB_ICONINFORMATION);
-    if (o.run) {
-        int crc = run_command(o.run);
+        MessageBoxW(NULL, o.msg_text[0] ? o.msg_text : L"sleepv: countdown finished.",
+                    L"sleepv", MB_OK | MB_ICONINFORMATION);
+    if (o.run_count > 0) {
+        int crc = run_commands(&o);
         if (rc == 0)
             rc = crc;
     }
+    free(o.runs);
     return rc;
 }
