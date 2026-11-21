@@ -156,44 +156,57 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           name: sleepv-windows
           path: bin
-      - name: Checksums and release notes
+
+      - name: Package Linux script, checksums and release notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          install -m 755 sleepv bin/sleepv-linux
           cd bin
-          sha256sum sleepv-x*.exe > SHA256SUMS.txt
+          sha256sum sleepv-linux sleepv-x*.exe > SHA256SUMS.txt
+          SLINUX=$(stat -c %s sleepv-linux)
           S32=$(stat -c %s sleepv-x86.exe); S64=$(stat -c %s sleepv-x64.exe)
+          HLINUX=$(awk '$2 == "sleepv-linux" {print $1}' SHA256SUMS.txt)
           H32=$(awk '/sleepv-x86/ {print $1}' SHA256SUMS.txt)
           H64=$(awk '/sleepv-x64/ {print $1}' SHA256SUMS.txt)
           cd ..
           cat > notes.md <<EOF
-          Static Windows builds of sleepv - Windows Vista SP2 through Windows 11, x86 and x64, no runtime dependencies of any kind.
+          sleepv release: a Linux Bash script and static Windows builds for Windows Vista SP2 and later (x86 and x64).
 
           | file | for | size, bytes | SHA-256 |
           | --- | --- | ---: | --- |
+          | sleepv-linux | Linux (Bash script) | $SLINUX | \`$HLINUX\` |
           | sleepv-x86.exe | 32-bit Windows, and any 64-bit Windows too | $S32 | \`$H32\` |
           | sleepv-x64.exe | 64-bit Windows (Vista SP2 and later) | $S64 | \`$H64\` |
 
-          Verify before you run it (either command prints the same value as the table):
+          On Linux, verify all downloaded assets with:
+
+              sha256sum -c SHA256SUMS.txt
+
+          On Windows, verify an executable with:
 
               certutil -hashfile sleepv-x64.exe SHA256
-              powershell -Command "(Get-FileHash sleepv-x64.exe).Hash -replace '(.{2})','\$1 ')"
 
-          The binaries also live in \`win/dist/\` in the tree, built by the same pipeline; \`SHA256SUMS.txt\` is attached here as a file.
+          Linux quick start: \`chmod +x sleepv-linux && ./sleepv-linux 30s\`. The script can be installed to \`/usr/sbin/sleepv\` with \`./sleepv-linux --install\`.
+
+          \`SHA256SUMS.txt\` is attached as a separate file. The tracked \`win/dist/\` executables are not guaranteed to be byte-identical to assets rebuilt for this release.
 
           What this build is checked against, in CI:
           only kernel32, msvcrt, user32, shell32 and advapi32 imported - no api-ms-win-*, no UCRT, no libgcc or winpthread DLLs;
           PE subsystem version 6.00, so the loader accepts it on Vista;
           no SSE2 instruction in the x86 build, which is what Pentium III and earlier need;
-          size budget under 200 KB, and the parser, exit-code and installer behaviour exercised under Wine.
+          size budget under 200 KB. A Wine smoke test exercises parser, exit-code, command-queue and installer behaviour, but is non-blocking.
 
           Usage in one line:
 
+              ./sleepv-linux 5m                 Linux countdown
               sleepv 5m && echo done          countdown, then continue
               sleepv 1h 30m --run "ipconfig /all"      run something after the pause
               sleepv --install                every user on this PC gets "sleepv" (UAC)
@@ -206,9 +219,7 @@ jobs:
           else
             flag=""
           fi
-          # This job has no checkout step on purpose, so gh has to be told which
-          # repository it is publishing to: without --repo it looks for a .git
-          # directory and dies with "failed to run git: not a git repository".
+          # Pass the repository explicitly so the release target is unambiguous.
           gh release create "$GITHUB_REF_NAME" bin/* --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "sleepv $GITHUB_REF_NAME" $flag --notes-file notes.md
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \

@@ -1,525 +1,175 @@
-╔══════════════════════════════════════════════════════════════════════════════╗
-║  sleepv - a visual wrapper around the sleep command                          ║
-║  Version 1.1  |  Linux: bash script  |  Windows: native exe (Vista SP2+)     ║
-╚══════════════════════════════════════════════════════════════════════════════╝
+# sleepv
 
-Russian documentation: README.md
+A visual countdown for timed pauses. The repository contains two separate implementations:
 
+- **Linux:** Bash script, version 1.0 (`sleepv`).
+- **Windows:** native Win32 program, version 1.1.0 (`sleepv-x86.exe` and `sleepv-x64.exe`), targeting Windows Vista SP2 and later.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- WHAT IT IS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Russian documentation: [README.md](README.md).
 
-sleepv wraps the standard sleep command.
+## Releases and downloads
 
-Plain sleep just pauses, without any output. You run "sleep 5m" and sit there
-wondering whether the script is hung or honestly waiting.
+Open [GitHub Releases](https://github.com/paolosezart/sleepv/releases). Future releases created from a repository revision containing the updated workflow will publish three runnable files and one checksum file:
 
-sleepv fixes that: while waiting, the terminal shows a live progress bar with a
-countdown.
+- `sleepv-linux` — the Bash script for Linux;
+- `sleepv-x86.exe` — Windows x86;
+- `sleepv-x64.exe` — Windows x64;
+- `SHA256SUMS.txt` — SHA-256 checksums for all three files.
 
-    ⏱  00:01:23  [████████████░░░░░░░░░░░░░░░░░░]   58%  (2m 3s)
+The workflow does not modify older releases retroactively. On Linux, save `sleepv-linux` and run:
 
-  • 00:01:23  - time left until the pause ends (HH:MM:SS)
-  • [████░░░░] - the bar; in the Linux version the filled part is what is LEFT,
-                so the bar shrinks (the Windows one grows - see "Differences")
-  • 58%       - share of elapsed time
-  • (2m 3s)   - the arguments you passed
+```sh
+chmod +x sleepv-linux
+./sleepv-linux 30s
+```
 
-When the pause is over:
+Verify the downloaded assets on Linux with:
 
-    ✓  Done! (was: 2m 3s)
+```sh
+sha256sum -c SHA256SUMS.txt
+```
 
+On Windows, you can check a checksum with PowerShell:
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- INSTALLATION (LINUX)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```powershell
+Get-FileHash .\sleepv-x64.exe -Algorithm SHA256
+```
 
-    chmod +x sleepv
-    ./sleepv --install
+## Basic usage
 
-The script copies itself to /usr/sbin/sleepv and sets the permissions. If your
-user lacks the rights, it asks for sudo automatically.
+A normal invocation waits for the requested duration. When stderr is attached to a terminal, sleepv shows a countdown; otherwise it waits without a progress bar. `stdout` remains available for data, while progress is written to `stderr`.
 
-What --install does:
-  1. finds its own current location
-  2. copies itself to /usr/sbin/sleepv (always under the name "sleepv")
-  3. sets the executable bit (chmod +x)
-  4. retries through sudo if needed
-  5. prints manual steps if even sudo failed
+```sh
+sleepv 30       # 30 seconds
+sleepv 30s      # same
+sleepv 5m       # 5 minutes
+sleepv 1h 30m   # summed: 1 hour 30 minutes
+sleepv 1.5m     # 90 seconds (Linux requires a digit before the decimal point)
+```
 
-After that sleepv is available everywhere, from any terminal and any script,
-exactly like the ordinary sleep.
+Suffixes `s`, `m`, `h` and `d` mean seconds, minutes, hours and days; no suffix means seconds. Duration arguments are added together. Negative values and unsupported suffixes are rejected.
 
-    which sleepv              # /usr/sbin/sleepv
+## Linux
 
-To uninstall, delete /usr/sbin/sleepv with administrative rights
-(sudo + the file name, as shown in README.md).
+### Installation
 
+To run a downloaded file:
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- TIME SYNTAX AND SUFFIXES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```sh
+chmod +x sleepv-linux       # or chmod +x sleepv when using the repository file
+./sleepv-linux --install
+```
 
-    sleepv NUMBER[SUFFIX] [NUMBER[SUFFIX] ...]
+`--install` copies the script to `/usr/sbin/sleepv`; if needed, the script tries to use `sudo`. To remove it, run `sudo rm /usr/sbin/sleepv`. The Linux script has no `--dir` or `--uninstall` option.
 
-┌─────────┬──────────────┬────────────────────┐
-│ Suffix  │ Meaning      │ Example            │
-├─────────┼──────────────┼────────────────────┤
-│ s       │ seconds      │ sleepv 30s         │
-│ m       │ minutes      │ sleepv 5m          │
-│ h       │ hours        │ sleepv 2h          │
-│ d       │ days         │ sleepv 1d          │
-│ (none)  │ seconds      │ sleepv 90          │
-└─────────┴──────────────┴────────────────────┘
+### Linux commands and options
 
-Arguments add up, fractions are supported:
+```text
+sleepv NUMBER[SUFFIX] [NUMBER[SUFFIX] ...]
+sleepv --help | -h
+sleepv --version
+sleepv --install
+```
 
-    sleepv 1m 30s     -> 90 seconds
-    sleepv 1h 5m 3s   -> 3903 seconds
-    sleepv 2d 12h     -> 2.5 days
-    sleepv 1.5m       -> 90 seconds
-    sleepv 0.5h       -> 30 minutes
+- `--help` / `-h` prints help, including the help from the system `sleep` command it finds.
+- `--version` prints the script version and, if found, the system `sleep` version.
+- `--install` installs the script as `/usr/sbin/sleepv`.
+- Other options, including Windows-specific ones, are not supported by the Linux script.
 
+### Compatibility and timing
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- ALL COMMANDS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+The script uses Bash (`#!/usr/bin/env bash`), a system `sleep` command and either `bc` or `awk` for arithmetic. `tput` is used only to control cursor visibility and is optional. Execute the script directly (`./sleepv`); do not pass it to `sh` or `dash`.
 
-    sleepv 10 / sleepv 10s      exactly 10 seconds ('s' may be omitted)
-    sleepv 5m / sleepv 2.5m     5 minutes / 2 minutes 30 seconds
-    sleepv 1h / sleepv 0.5h     1 hour / 30 minutes
-    sleepv 1h 30m               summed left to right: 5400 seconds
-    sleepv --help               description, syntax, suffix list, and the help
-                                of the system GNU sleep
-    sleepv --version            sleepv version plus system GNU sleep version
-    ./sleepv --install          install to /usr/sbin/sleepv
+The Linux parser requires a digit before the decimal point: `1.5s` is accepted, `.5s` is not. For its countdown display, it sums durations and rounds down to whole seconds. Therefore, a sub-second duration in an interactive terminal may finish immediately, and the display is not fractional-second accurate. In non-interactive mode the script passes the original arguments to the system `sleep` command it finds; fractional support there depends on that command. The script does not set a formal maximum duration.
 
+In an interactive terminal, Ctrl+C interrupts the script with exit code 130 and restores the cursor when `tput` is available. In non-interactive mode control is handed to the system `sleep`, so signal behaviour depends on that command and the calling environment.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- USING IT INSIDE YOUR OWN SCRIPTS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-sleepv is a drop-in replacement for sleep: write sleepv instead of sleep. The
-syntax is identical.
-
-    #!/bin/bash
-    echo "waiting 30 seconds before start..."
-    sleepv 30s
-    echo "5 minute pause..."
-    sleepv 5m
-    echo "continuing."
-
-Behaviour per context:
-
-1. Terminal - progress bar, countdown, percent. The main mode.
-2. No terminal (cron, systemd, background) - sleepv notices and pauses silently,
-   exactly like plain sleep. No extra output at all.
-3. In a pipe:  sleepv 5s | other_command - stdout stays completely clean, the
-   progress goes to stderr.
-4. In command substitution:  result=$(sleepv 5s; echo "data") - the variable
-   receives only "data".
-5. With  2>/dev/null  - the pause happens quietly, no bar.
-
-Cancelling: press Ctrl+C, the cursor is restored, documented exit code 130.
-(The 1.0 bash script really returns 0 - see "Differences"; the Windows build does
-what you ask of it.)
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- WINDOWS VERSION (Vista SP2 and later)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-This is not a translation of the bash script and not a PowerShell wrapper. sleepv
-for Windows is a native Win32 application (win/sleepv.c), statically linked, with
-zero external dependencies: no .NET, no Visual C++ redistributable, no
-PowerShell, no GNU coreutils. It imports only kernel32.dll, msvcrt.dll,
-user32.dll, shell32.dll and advapi32.dll - all of them are Windows components.
-
-    sleepv-x86.exe   32-bit systems and mixed fleets (also runs on 64-bit
-                     Windows, including ARM64 under emulation)
-    sleepv-x64.exe   64-bit Windows 7/8/10/11
-    about 80-90 KB each
-
-Supported: Windows Vista SP2, 7, 8, 8.1, 10, 11 and the matching server
-editions. No api-ms-win-* forwarders and no UCRT are used - that is precisely
-the technical condition for running on Vista, and CI checks the import table for
-it automatically.
-
-── Getting it ───────────────────────────────────────────────────────────────
-
-1) In the tree itself: win/dist/sleepv-x86.exe and win/dist/sleepv-x64.exe.
-   Both are committed on purpose, so the tool can be taken away by cloning the
-   repository, with no Releases tab and no toolchain involved. They are the
-   CI-built files, byte-identical with the v1.1.0 release assets, so the hashes
-   in SHA256SUMS.txt apply to them as well.
-2) Releases tab: the same two executables plus SHA256SUMS.txt, built by GitHub
-   Actions when a v* tag is pushed; the hash values are also printed in the body
-   of the release.
-3) Portable: drop the exe next to your .bat files - no install required
-4) Build it yourself (cross-compile on Linux, or natively in MSYS2/MinGW):
-
-       sudo apt-get install mingw-w64
-       make -C win all
-       make -C win gate        # Vista compatibility check on the imports
-
-   ABOUT THE HASHES. win/dist holds the GitHub Actions build, so its SHA-256
-   values match the release and can be checked directly:
-
-       sha256sum win/dist/sleepv-x64.exe                   # Linux / MSYS2
-       certutil -hashfile win\dist\sleepv-x64.exe SHA256   # Windows
-
-   A build made on your own machine (different binutils/gcc versions) behaves
-   identically but may differ byte for byte, and that is fine: compare a release
-   against a release, and your own build against your own build.
-
-── Same time syntax as on Linux ─────────────────────────────────────────────
-
-    sleepv 5m
-    sleepv 1h 30m 12.5s
-    sleepv 30s && calc
-
-Suffixes s/m/h/d, arguments add up, fractions allowed, negative values and junk
-tails are rejected, maximum pause 30 days. Console look, 10 refreshes per second
-and millisecond accuracy:
-
-      00:04:12  [#############░░░░░░░░░░░░░░░░░░]   33%  (5m)
-
-── Install for all users ────────────────────────────────────────────────────
-
-    sleepv --install
-
-The program asks for administrator rights through UAC and copies itself into
-C:\Windows\System32. Details that matter:
-
-  • A 32-bit build writing to System32 would be redirected to SysWOW64 by the
-    File System Redirector, so the path is built with the "\\?\" prefix and
-    lands in the real System32.
-  • System32 is already in the system PATH, so every user on the machine gets
-    the command straight away - no PATH editing, no reboot, just open a new
-    console.
-  • The installer verifies that BUILTIN\Users have Read & Execute on the file
-    and adds that right explicitly when it is missing.
-  • The manifest declares asInvoker: without it Vista would enable VirtualStore
-    and the "install" would silently end up in %LOCALAPPDATA% instead.
-
-    sleepv --install --dir "D:\tools"    # any folder you choose, no UAC; missing
-                                         # directory levels are created, and since
-                                         # such a folder is not on PATH you get a note
-    sleepv --uninstall                   # remove installed copies (admin)
-
-── Windows-only options ─────────────────────────────────────────────────────
-
-    --install [--dir PATH]   copy itself into the system directory (UAC)
-    --uninstall              remove the installed copies
-    --run "COMMAND"          queue a command after the pause; repeatable
-    -a, --after              wait for --run commands (applies to previous and later commands)
-    -w, --workdir PATH       working directory for following --run commands; inherited
-    -w, --workdir PATH       working directory for the --run command
-    --beep                   beep when the pause ends
-    --msg [TEXT]             message box when the pause ends; default text if omitted
-    --ascii                  bar drawn with # and - (default on Vista/2008)
-    --unicode                bar drawn with block glyphs (default on Win7+)
-    --strict-cancel          exit 130 on Ctrl+C (stops the && chain)
-    -q, --quiet              no output at all
-    --help, --version        help / version and build parameters
-
-    sleepv 14s --msg Complete --run quser
-    sleepv 14s -a --msg Complete --run quser --after --run ver --run "echo done"
-    sleepv 5s -w "C:\Projects\demo" --run "dir && echo done"
-    sleepv 5m --beep --msg
-    sleepv 30s --msg "765"    # show "765" after 30 seconds
-    for /L %%i in (1,1,5) do ( echo try %%i & sleepv 10s )
-
-When custom text is supplied, put all duration arguments before `--msg`; its
-next argument is interpreted as the message text.
-`-w` / `--workdir` sets the initial working directory for `--run` and requires
-`--run`; quote paths containing spaces.
-
-By default, `--run` launches commands asynchronously and sleepv exits after
-starting the queue; it cannot report the exit code of a process still running.
-`-a` / `--after` enables waiting: it applies to the previous `--run` command, if
-any, and all following commands. This makes that part of the queue sequential,
-and sleepv returns the exit code of the last waited command. The `--msg` dialog
-appears before queued commands; the queue starts after the dialog is dismissed.
-
-`-w` / `--workdir` sets the starting directory for the next `--run` and is
-inherited by later commands until another path is specified. It requires at least
-one `--run` command.
-
-`--run` is executed through `cmd.exe`, so standard CMD operators `&&`, `&`, `|`,
-and `||` keep their normal behavior inside the quoted command. `--workdir` applies
-to the whole command string for that `--run`; a `cd` within it can change the
-directory for later parts of the same chain.
-
-── Behaviour in .bat / cmd / PowerShell ─────────────────────────────────────
-
-Silent mode is identical to Linux: when stderr is not a console (service, Task
-Scheduler, redirect, pipe) the pause happens silently, stdout stays clean,
-progress goes to stderr.
-
-Ctrl+C: the interruption ends the countdown and returns exit code 0, so the next
-statement in a .bat file keeps running and cmd.exe does not print "Terminate
-batch job (Y/N)?" - that prompt only appears when the child process returns
-0xC000013A. If you want the opposite, use --strict-cancel, which returns 130.
-
-One honest caveat: inside PowerShell itself, Ctrl+C aborts the pipeline by the
-shell's own rules and a child process cannot override that. If a .ps1 must
-continue after an interrupted pause, call it as:
-cmd /c "sleepv 30s && next_command".
-
-── Differences between the Windows and Linux versions (in detail) ───────────
-
-   The 1.0 bash script was deliberately left untouched: the port lives next to it
-   and every divergence is documented here. Verified against bash 5.2.15, GNU
-   coreutils sleep 9.1 and wine-8.0 (used to run the exe from Linux); exit codes
-   and messages below were taken from real runs, the commands are listed at the end.
-
-   1. ACCURACY AND REFRESH RATE
-      Linux: a 1-second loop on top of the background sleep. Bar and timer redraw
-             once per second, about 18 ms of accounting drift per iteration, so an
-             hour-long countdown can be a second behind visually.
-      Windows: an absolute deadline from QueryPerformanceCounter, 10 redraws per
-             second, drift in single milliseconds.
-      In practice both are fine as a "the script is alive" indicator, and the real
-      duration of the pause is equally exact on both, because Linux delegates the
-      wait itself to the system sleep.
-
-   2. BAR DIRECTION AND GLYPHS
-      Linux: the filled part is what is LEFT, so the bar shrinks from full to empty.
-      Windows: the filled part is what has PASSED, so the bar grows.
-      The percentage is computed the same way in both (share of elapsed time), so
-      "58%" means the same thing - only the graphic is mirrored. Linux draws █ and
-      ░; Windows defaults to them on Win7+, and to ASCII #/- on Vista/2008.
-
-   3. EXIT CODE ON Ctrl+C - THE ONE THAT MATTERS FOR SCRIPTS
-      Linux, interactive terminal: 130. The 1.0 documentation was right.
-      Linux, no terminal (cron, pipe, redirect, service): 0, because in silent mode
-             the script execs the system sleep directly and its own "exit 130" trap
-             never runs. After Ctrl+C in that mode, "sleepv 30s && next" CONTINUES.
-      Windows, any mode: 0 by default, so the next statement in a .bat file runs and
-             cmd.exe does not ask "Terminate batch job (Y/N)?". With --strict-cancel:
-             130 and the chain stops.
-      In short: on Linux the code depends on whether a TTY is present, on Windows it
-      depends only on an explicit flag. In PowerShell, Ctrl+C aborts the pipeline by
-      the shell's own rules either way; cmd /c "sleepv 30s && next" is the way to
-      keep going.
-
-   4. CURSOR RESTORE
-      Linux: tput cnorm in the trap handler; after SIGKILL the cursor can stay
-             hidden (fix: tput cnorm or reset).
-      Windows: SetConsoleCursorInfo on every exit path it controls, including
-             Ctrl+C; if the process is killed from Task Manager the same applies
-             (fix: reopen the console, or mode con: rate=0 delay=0).
-
-   5. TIME PARSER - NO DIFFERENCE
-      Both are exactly as strict: s/m/h/d, summed arguments, fractions (1.5m, 3.75),
-      leading zeros (007), zero (0). Both reject with exit 1: 10x, 1w, 10s5m, "5 m",
-      1e3, -5. Only the wording of the error message differs (see item 7).
-
-   6. OVERFLOW AND MAXIMUM DURATION - DIFFERENT
-      Linux: no formal limit; 999999999999999999999999 makes bash print "syntax
-             error in expression" and the pause becomes effectively infinite.
-      Windows: a clean refusal, "sleepv: duration too large (maximum is 30 days).",
-             exit 1, with 30 days as the explicit ceiling.
-      Consequence: values computed in bash should be sanity-checked - the Windows
-      limit is stricter than the Linux behaviour.
-
-   7. OUTPUT LANGUAGE AND ENCODING - DIFFERENT
-      Linux: Russian, UTF-8, block graphics, the ⏱ and ✓ glyphs, box-drawing frames.
-      Windows: ASCII only, English only - a deliberate decision, because the Windows
-             console lives in an OEM code page (866/1251 for Cyrillic), the raster
-             Vista font cannot render half of Unicode, and a garbled localisation is
-             worse than a short English line. --unicode adds exactly two glyphs, █
-             and ░.
-      Consequence: grepping sleepv's messages across platforms will not match; rely
-      on exit codes, not on strings.
-
-   8. NO ARGUMENTS - SAME
-      Short usage text on stdout, exit 0 (GNU sleep would exit 1 here).
-
-   9. UNKNOWN OPTIONS
-      Linux rejects everything that is not --install/--help/--version, including the
-      Windows set: sleepv --beep 1s gives "неверный аргумент: '--beep'" and exit 1.
-      Windows does not understand Linux-only behaviour either. One command line with
-      --run/--beep/--msg works on Windows only.
-
-  10. SILENT MODE - SAME LOGIC, DIFFERENT IMPLEMENTATION
-      Linux: [[ -t 2 ]] (is stderr attached to a TTY?). Windows: GetFileType
-      (STD_ERROR_HANDLE) == FILE_TYPE_CHAR plus GetConsoleMode. Streams match: stdout
-      stays clean, progress goes to stderr, 2>/dev/null silences the bar on both.
-
-  11. --install - DIFFERENT TARGETS AND MECHANISMS
-      Linux: /usr/sbin/sleepv, calling sudo itself when rights are missing.
-      Windows: C:\Windows\System32\sleepv.exe through UAC, with the File System
-             Redirector bypassed via the "\\?\" prefix (otherwise the 32-bit build
-             lands in SysWOW64), a check that BUILTIN\Users keep Read & Execute, and
-             an asInvoker manifest so Vista VirtualStore cannot intercept the write.
-      Windows extras: --uninstall removes the copies from System32 and SysWOW64;
-             --install --dir PATH creates missing directory levels itself and, since
-             such a folder is not on PATH, says so explicitly.
-
-  12. --version
-      Linux: script version 1.0 plus the system GNU sleep banner.
-      Windows: sleepv 1.1.0, target platform, binary bitness, whether a console is
-             attached, and a line stating the static build with no redist.
-
-  13. COMPLETION MESSAGE
-      Linux: "✓  Готово! (было: 2m 3s)" (interactive mode only).
-      Windows: "sleepv: finished! (was: 2m 3s)".
-
-  14. HOW TO CHECK IT YOURSELF
-      bash -c './sleepv 30 >/dev/null 2>&1 & p=$!; sleep 1; kill -INT $p; wait $p; echo $?'
-        -> 0   (silent mode: the chain is not interrupted)
-      in an interactive terminal: sleepv 30, press Ctrl+C, then echo $?  -> 130
-      ./sleepv 10x; echo $?       -> 1 on both platforms (message wording differs)
-      ./sleepv 999999999999999999999999   -> bash arithmetic errors, infinite wait
-      wine sleepv-x64.exe --install --dir 'C:\tools'    -> installs, creating the folder
-
-── A risk worth knowing about ───────────────────────────────────────────────
-
-An unsigned exe that copies itself into System32 behaves like malware, so
-AppLocker, WDAC or Attack Surface Reduction rules in a corporate environment may
-block the install, just as SmartScreen and the Mark-of-the-Web can block a
-downloaded file. The normal way round is portable use from your own folder, or
---install --dir. Code signing is a decision for the repository owner.
-
-── What CI checks automatically ─────────────────────────────────────────────
-
-.github/workflows/windows.yml builds both architectures, validates the import
-table (api-ms-*, ext-ms-*, UCRT, vcruntime, msvcp are forbidden), enforces a
-200 KB size budget, then runs a behavioural smoke test under Wine: the parser
-both accepting and rejecting with the right exit codes, the 30-day ceiling,
---run propagating the child code, and --install --dir creating the folder and
-leaving a runnable sleepv.exe. It uploads the artifacts and, on a v* tag,
-publishes a release holding both executables, SHA256SUMS.txt and the same hashes
-in the release notes.
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- PRACTICAL EXAMPLES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    systemctl restart networking
-    echo "waiting for the network..."
-    sleepv 15s
-    ping -c 3 8.8.8.8
-
-    for i in 1 2 3; do
-        echo "attempt $i..."
-        connect_to_server && break
-        echo "failed, retrying in 30 seconds"
-        sleepv 30s
-    done
-
-    while true; do
-        check_status
-        echo "next check in 5 minutes"
-        sleepv 5m
-    done
-
-    echo "killing processes..."
-    kill -TERM "$some_pid"
-    sleepv 3s          # you can see the script is waiting, not hung
-    kill -KILL "$some_pid"
-
-    echo "WARNING: formatting starts in 10 seconds. Ctrl+C to cancel."
-    sleepv 10s
-    mkfs.ext4 /dev/sdX
-
-    # crontab - sleepv prints nothing extra when there is no terminal:
-    */5 * * * * /usr/sbin/goinet && sleepv 30s && /usr/sbin/other_script
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- COMPATIBILITY AND LIMITS (LINUX)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Requires:
-  • bash 4.0+ (standard in Debian / Raspberry Pi OS / Kali / Ubuntu)
-  • GNU sleep (part of coreutils - always present)
-  • bc or awk (arithmetic - both ship with Debian)
-  • tput (cursor control - package ncurses-bin)
-
-    which bash sleep bc awk tput
-
-Shells: bash (full), sh, dash (the shebang pins bash), zsh (as external command).
-Terminals: xfce4-terminal, xterm, lxterminal, gnome-terminal, konsole, SSH
-sessions, tmux / screen, and script execution without a terminal (silent mode).
-
-The only case where progress could leak into your data:
-
-    output=$(command_that_calls_sleepv 2>&1)
-
-Fix: add 2>/dev/null to the sleepv call inside such a substitution.
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- TECHNICAL DETAILS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Terminal detection (Linux): [[ -t 2 ]] checks whether stderr is attached to a
-TTY - visual mode if yes, plain sleep if not. The Windows port uses the exact
-equivalent: GetFileType(STD_ERROR_HANDLE) == FILE_TYPE_CHAR plus GetConsoleMode.
-
-Progress bar (Linux): once per second the script rewrites the current line with
-\r and ESC[K, so the progress always stays on one row and never scrolls. The
-Windows build redraws 10 times per second using a padded CR line (no ANSI
-needed) and hides/restores the cursor through SetConsoleCursorInfo.
-
-Timing: the Linux version runs the real sleep in the background and counts
-visually on top of it, so overall accuracy equals the system sleep, ±1 s on the
-display. The Windows version computes an absolute deadline with
-QueryPerformanceCounter, so the drift is in the low milliseconds.
-
-Streams: stdout (1) is clean, exactly like sleep; stderr (2) carries the bar and
-the timer.
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- QUICK REFERENCE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    sleepv --install        install to /usr/sbin/sleepv (Linux)
-    sleepv --help           help
-    sleepv --version        version
-
-    sleepv 30               30 seconds
-    sleepv 30s              same
-    sleepv 5m               5 minutes
-    sleepv 1h               1 hour
-    sleepv 1d               1 day
-    sleepv 1h 30m           1 hour 30 minutes
-    sleepv 2m 30s           2 minutes 30 seconds
-    sleepv 1.5m             90 seconds
-
-    Ctrl+C                  cancel the pause
-
-    --- Windows (the same, plus native options) --------------------------------
-
-    sleepv --install        copy to System32 for all users (UAC)
-    sleepv 30s && calc      works in .bat and cmd, no wrappers needed
-    sleepv 1h 30m 12.5s     summed arguments and fractions, like on Linux
-    sleepv 30s --run "calc" run after the pause, exit code propagates
-    sleepv 5m --ascii       bar from # and - (if the console font lacks █░)
-    sleepv --strict-cancel 1m   Ctrl+C => 130, the && chain stops
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- FILES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /usr/sbin/sleepv                installed bash script (after --install)
-    /usr/bin/sleep                  the original GNU sleep (untouched)
-    sleepv                          Linux source (this repository)
-    README.md                       full Russian documentation
-    README-EN.md                    this document
-    win/sleepv.c                    Windows source (Win32, no dependencies)
-    win/Makefile                    x86 + x64 build and the Vista gate
-    win/sleepv.exe.manifest         asInvoker + supportedOS (required for Vista)
-    win/dist/sleepv-x86.exe         32-bit binary (build / CI output)
-    win/dist/sleepv-x64.exe         64-bit binary
-    C:\Windows\System32\sleepv.exe  result of --install on Windows
-
-License: the repository carries no license file yet; the Windows build reports
-"Copyright (c) 2026 sleepv contributors" in its version resource.
+## Windows
+
+The Windows version is a native Win32 application, not a Bash or PowerShell script. It is statically linked and does not require .NET or the Visual C++ Redistributable. The stated minimum supported OS is Windows Vista SP2.
+
+- `sleepv-x86.exe` is the 32-bit build; it can also run on 64-bit Windows through emulation.
+- `sleepv-x64.exe` is the 64-bit build.
+- The executable is portable; installation is optional.
+
+### Windows installation
+
+```cmd
+sleepv-x64.exe --install
+sleepv-x64.exe --install --dir "D:\tools"
+sleepv-x64.exe --uninstall
+```
+
+`--install` copies the executable into the Windows system directory and requests UAC elevation when needed. `--install --dir PATH` installs into the chosen folder and creates it if necessary; adding that folder to `PATH` is up to the user. `--uninstall` removes the installed system copies and requires administrator rights.
+
+### Windows options
+
+| Option | Action |
+| --- | --- |
+| `--help`, `-h` | Show help. |
+| `--version` | Show version, target OS, binary architecture and build information. |
+| `--install [--dir PATH]` | Install into the system directory or the specified folder. |
+| `--uninstall` | Remove installed system copies. |
+| `--run "COMMAND"` | Queue a command after the pause; repeatable. |
+| `-a`, `--after` | Wait for `--run` commands; also applies to the immediately preceding command and following commands. |
+| `-w`, `--workdir PATH` | Set the starting working directory for following `--run` commands; inherited until changed. Requires at least one `--run`. |
+| `--beep` | Play a short sound after an interactive countdown; quiet mode suppresses it. |
+| `--msg [TEXT]` | Show a message box after the countdown; uses a default message if text is omitted. |
+| `--ascii` | Draw the progress bar with `#` and `-`. |
+| `--unicode` | Use block glyphs for the progress bar. |
+| `-q`, `--quiet` | Suppress normal progress, completion text and beep. Does not suppress errors, the `--msg` dialog or child-command output. |
+| `--strict-cancel` | Return exit code 130 on Ctrl+C instead of 0. |
+
+When supplying custom `--msg` text, put all duration arguments before it: the immediately following argument is used as the dialog text only if it does not start with `-`. The dialog appears after the countdown and before the queued commands start.
+
+```cmd
+sleepv-x64.exe 14s --msg Complete --run quser
+sleepv-x64.exe 14s -a --msg Complete --run quser --after --run ver --run "echo done"
+sleepv-x64.exe 5s -w "C:\Projects\demo" --run "dir && echo done"
+sleepv-x64.exe 5m --beep --msg
+sleepv-x64.exe 30s --msg 765
+```
+
+By default, `--run` starts processes asynchronously: sleepv does not wait for them and cannot report their eventual exit codes. `-a` / `--after` enables waiting for the previous command (if any) and all following commands; waited commands run sequentially. sleepv returns the exit code of the last waited command. If the final command is asynchronous, sleepv normally exits with code 0 after starting it.
+
+`-w` / `--workdir` sets the directory in which the corresponding process starts, and is inherited by subsequent queue entries until another `--workdir` is specified. A `cd` inside one `--run` command can affect later parts of that same command string, but it does not change the starting directory of later processes in the queue.
+
+Each `--run` command is executed through `cmd.exe`, so standard CMD operators `&&`, `&`, `|` and `||` work inside the command string. These operators belong to CMD, not to sleepv itself.
+
+### Windows cancellation and quiet mode
+
+Ctrl+C cancels the countdown. By default the program returns 0; `--strict-cancel` returns 130. On cancellation, the `--msg` dialog is not shown and queued commands are not started. When stderr is not a console, progress output is automatically suppressed. `--quiet` also suppresses normal screen output, but not errors, the message box or output from launched commands.
+
+## Linux and Windows differences
+
+| Feature | Linux Bash | Windows executable |
+| --- | --- | --- |
+| Fractional values | A digit is required before the decimal point; countdown accounting rounds down to whole seconds. | Fractions are supported, including `.5`; the timer accounts for the fractional part. |
+| Maximum duration | No formal limit is set in the script. | 30 days; larger values are rejected. |
+| Actions after the pause | No built-in command options. The surrounding shell handles `sleepv ... && command`. | `--run` queue, `--after` waiting mode, working directory, message box and other options are available. |
+| Ctrl+C | Exit code 130 in an interactive terminal; without a terminal, the system `sleep` / caller handles the signal. | Exit code 0 by default; `--strict-cancel` selects 130. The command queue is not started after cancellation. |
+| Progress | Filled area represents remaining time and shrinks. Updates about once per second. | Filled area represents elapsed time and grows. Updates about 10 times per second. |
+| Text | Russian UTF-8. | Program messages are in English; an ASCII bar is available, and block glyphs depend on mode/console. |
+
+These are two implementations with overlapping, but not identical, syntax; full compatibility with every GNU `sleep` form is not promised. Windows options (`--run`, `--workdir`, `--msg`, and others) are not available in the Linux script.
+
+## Building and automated checks
+
+Build the Windows executables from Linux with MinGW-w64, or natively in MSYS2/MinGW:
+
+```sh
+sudo apt-get install mingw-w64 binutils-mingw-w64
+make -C win all
+make -C win gate
+```
+
+GitHub Actions builds x86 and x64, checks the import tables for forbidden dependencies and enforces an executable size budget. A separate Wine smoke test covers selected parser cases, exit codes, the command queue and installation, but it is marked **non-blocking** (`continue-on-error`): a passing Wine test is not required for release publication. For a `v*` tag, the workflow attaches the Linux script, both Windows builds and `SHA256SUMS.txt`; the checksums are also included in the release notes.
+
+## Project files
+
+- `sleepv` — Linux Bash source.
+- `win/sleepv.c` — Windows application source.
+- `win/Makefile` — x86/x64 cross-build and import check.
+- `win/dist/sleepv-x86.exe`, `win/dist/sleepv-x64.exe` — binaries tracked in the repository. Do not assume they are byte-identical to an asset from any particular Release; verify the checksum of the downloaded release itself.
+- `.github/workflows/windows.yml` — build, tests and GitHub Release publication.
+- `README.md` — Russian documentation.
